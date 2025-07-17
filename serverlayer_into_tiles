@@ -1,0 +1,81 @@
+from arcgis.gis import GIS
+from arcgis.raster import ImageryLayer
+import os
+import time
+import requests
+
+# --- CONFIGURATION ---
+service_url = "https://sampleserver6.arcgisonline.com/arcgis/rest/services/NLCDLandCover2001/ImageServer"
+output_dir = r"C:\Users\c72liu\Desktop\tiles"  # Use an absolute path you have write access to
+tile_size = 2000  # in meters (2km x 2km tiles)
+tile_pixel_size = [512, 512]  # Reduce if export fails
+max_tiles_x = 3  # Number of tiles in x direction
+max_tiles_y = 3  # Number of tiles in y direction
+# ---------------------
+
+# Connect to ArcGIS Online (anonymous)
+gis = GIS()
+
+# Connect to the image service
+try:
+    img_layer = ImageryLayer(service_url, gis=gis)
+    extent = img_layer.extent
+    if not extent:
+        raise ValueError("Could not retrieve extent from the image service. Check the service URL and your access.")
+except Exception as e:
+    print(f"Failed to connect to image service: {e}")
+    exit(1)
+
+xmin, ymin, xmax, ymax = extent['xmin'], extent['ymin'], extent['xmax'], extent['ymax']
+
+# Create output directory
+os.makedirs(output_dir, exist_ok=True)
+
+# Calculate number of tiles in x and y direction
+x_steps = int((xmax - xmin) // tile_size) + 1
+y_steps = int((ymax - ymin) // tile_size) + 1
+
+
+# Export 4 tiles (2x2 grid) centered on the extent
+center_x = (xmin + xmax) / 2
+center_y = (ymin + ymax) / 2
+
+offsets = [
+    (-tile_size, -tile_size),
+    (0, -tile_size),
+    (-tile_size, 0),
+    (0, 0)
+]
+
+for idx, (dx, dy) in enumerate(offsets):
+    x0 = center_x + dx
+    x1 = x0 + tile_size
+    y0 = center_y + dy
+    y1 = y0 + tile_size
+    bbox = {'xmin': x0, 'ymin': y0, 'xmax': x1, 'ymax': y1, 'spatialReference': extent['spatialReference']}
+    print(f"Tile {idx+1} bbox: {bbox}")
+    out_path = os.path.join(output_dir, f"tile_{idx+1}.tif")
+    print(f"Exporting tile {idx+1} to {out_path} ...")
+    try:
+        result = img_layer.export_image(
+            bbox=bbox,
+            size=tile_pixel_size,
+            save_folder=output_dir,
+            save_file=f"tile_{idx+1}.tif",
+            export_format="tiff"
+        )
+        href = result.get('href')
+        if href:
+            response = requests.get(href)
+            if response.status_code == 200:
+                with open(out_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"Downloaded tile {idx+1} to {out_path}")
+            else:
+                print(f"Failed to download tile {idx+1} from {href}")
+        else:
+            print(f"No href found for tile {idx+1}")
+    except Exception as e:
+        print(f"Failed to export tile {idx+1}: {e}")
+
+print("Tiling complete.")
