@@ -164,12 +164,9 @@ for idx, (dx, dy) in enumerate(offsets):
         print(f"  Try reducing tile_size further (current: {tile_size} meters)")
         continue
 
-print(" Export complete.")
+print("\nTile export complete!")
 
-# === STITCHING TILES TOGETHER ===
-print("\nStitching tiles together...")
-
-# Collect all successfully exported tiles
+# Count successfully exported tiles
 exported_tiles = []
 for idx in range(len(offsets)):
     row = idx // grid_size + 1
@@ -177,74 +174,13 @@ for idx in range(len(offsets)):
     tile_path = os.path.join(output_dir, f"tile_r{row:02d}_c{col:02d}.tif")
     if os.path.exists(tile_path):
         exported_tiles.append(tile_path)
-        print(f"Found tile: tile_r{row:02d}_c{col:02d}.tif")
-
-if len(exported_tiles) > 1:
-    # Create mosaic output path
-    mosaic_path = os.path.join(output_dir, "stitched_mosaic.tif")
-    
-    try:
-        print(f"Creating mosaic from {len(exported_tiles)} tiles...")
-        
-        # Use arcpy.management.MosaicToNewRaster to stitch tiles
-        arcpy.management.MosaicToNewRaster(
-            input_rasters=exported_tiles,
-            output_location=output_dir,
-            raster_dataset_name_with_extension="stitched_mosaic.tif",
-            coordinate_system_for_the_raster=spatial_ref,
-            pixel_type="8_BIT_UNSIGNED",  # Adjust based on your imagery
-            cellsize="",  # Use original cellsize
-            number_of_bands="3",  # RGB imagery, adjust if needed
-            mosaic_method="FIRST",  # Use first tile's values for overlaps
-            mosaic_colormap_mode="FIRST"
-        )
-        
-        print(f"✓ Successfully created mosaic: {mosaic_path}")
-        print(f"  Combined {len(exported_tiles)} tiles into single image")
-        
-        # Optional: Create a larger mosaic with more spacing
-        larger_mosaic_path = os.path.join(output_dir, "analysis_ready_mosaic.tif")
-        
-        # Also create a copy with better compression for analysis
-        arcpy.management.CopyRaster(
-            in_raster=mosaic_path,
-            out_rasterdataset=larger_mosaic_path,
-            format="TIFF",
-            compression="LZW",
-            nodata_value="-9999"
-        )
-        
-        print(f"✓ Created analysis-ready copy: analysis_ready_mosaic.tif")
-        
-    except Exception as e:
-        print(f"✗ Error creating mosaic: {e}")
-        print("You can manually mosaic the tiles using ArcGIS Pro:")
-        print("1. Data Management Tools > Raster > Raster Dataset > Mosaic to New Raster")
-        print("2. Input the tile files and create a single output raster")
-
-elif len(exported_tiles) == 1:
-    print("Only one tile exported - copying as analysis-ready file...")
-    analysis_path = os.path.join(output_dir, "analysis_ready_single.tif")
-    arcpy.management.CopyRaster(
-        in_raster=exported_tiles[0],
-        out_rasterdataset=analysis_path,
-        format="TIFF",
-        compression="LZW"
-    )
-    print(f"✓ Created analysis-ready file: analysis_ready_single.tif")
-
-else:
-    print("No tiles were successfully exported to stitch together.")
 
 print("\n=== SUMMARY ===")
-print(f"Tiles exported: {len(exported_tiles)}")
+print(f"Tiles exported: {len(exported_tiles)}/{len(offsets)}")
 print(f"Output directory: {output_dir}")
-if len(exported_tiles) > 1:
-    print("Files created:")
+print("Files created:")
+if len(exported_tiles) > 0:
     print(f"  - Individual tiles: tile_r01_c01.tif through tile_r{grid_size:02d}_c{grid_size:02d}.tif")
-    print("  - Stitched mosaic: stitched_mosaic.tif")
-    print("  - Analysis ready: analysis_ready_mosaic.tif")
-elif len(exported_tiles) == 1:
-    print("Files created:")
-    print("  - Single tile: tile_r01_c01.tif")
-    print("  - Analysis ready: analysis_ready_single.tif")
+    print(f"  - Total coverage: {grid_size*tile_size}m x {grid_size*tile_size}m")
+else:
+    print("  - No tiles were successfully exported")
