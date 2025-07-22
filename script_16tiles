@@ -16,61 +16,25 @@ if not map_:
     map_ = project.listMaps()[0]
 
 print(f"Working with map: '{map_.name}'")
-print("\nAll available layers:")
 
-# List all layers with their index for easy selection
+# Directly get the Imagery_2024 layer
+target_layer_name = "Imagery_2024"
 all_layers = map_.listLayers()
-for i, lyr in enumerate(all_layers):
-    layer_type = type(lyr).__name__
-    print(f"  [{i}] {lyr.name} (Type: {layer_type})")
-    
-    # Show additional info for web layers
-    if hasattr(lyr, 'isWebLayer'):
-        print(f"      Web Layer: {lyr.isWebLayer}")
-    if hasattr(lyr, 'connectionProperties'):
-        try:
-            conn_props = lyr.connectionProperties
-            if 'url' in conn_props:
-                print(f"      URL: {conn_props['url'][:80]}...")
-        except:
-            pass
 
-imagery_layer = None
+# Find the specific layer by name
+layer = None
 for lyr in all_layers:
-    # Look for common imagery layer patterns including your specific server
-    keywords = ['imagery', 'image', 'aerial', 'satellite', '2024', 'imageserver', 'regionofwaterloo', 'treecanopy']
-    if any(keyword in lyr.name.lower() for keyword in keywords):
-        print(f"\nFound potential imagery layer: '{lyr.name}'")
-        imagery_layer = lyr
+    if lyr.name == target_layer_name:
+        layer = lyr
         break
 
-# Also check for layers with specific connection properties
-if not imagery_layer:
-    for lyr in all_layers:
-        if hasattr(lyr, 'connectionProperties'):
-            try:
-                conn_props = lyr.connectionProperties
-                if 'url' in conn_props:
-                    url = conn_props['url'].lower()
-                    if 'imageserver' in url or 'regionofwaterloo' in url:
-                        print(f"\nFound imagery layer by connection URL: '{lyr.name}'")
-                        print(f"URL: {conn_props['url']}")
-                        imagery_layer = lyr
-                        break
-            except:
-                pass
-
-if imagery_layer:
-    layer = imagery_layer
-    print(f"Using layer: '{layer.name}'")
+if layer:
+    print(f"Found and using layer: '{layer.name}'")
 else:
-    print(f"\nNo imagery layer found automatically.")
-    print("Available layers to choose from:")
-    for i, lyr in enumerate(all_layers):
-        print(f"  [{i}] {lyr.name}")
-    print("\nTo use a specific layer, add this line after the layer listing:")
-    print("layer = all_layers[X]  # Replace X with the index number")
-    print("For example: layer = all_layers[0]")
+    print(f"Error: Could not find layer '{target_layer_name}' in the map.")
+    print("Available layers:")
+    for lyr in all_layers:
+        print(f"  - {lyr.name}")
     exit(1)
 
 # Get extent of the layer
@@ -112,8 +76,8 @@ xmin, ymin, xmax, ymax = extent.XMin, extent.YMin, extent.XMax, extent.YMax
 center_x = (xmin + xmax) / 2
 center_y = (ymin + ymax) / 2
 
-# Create 8x8 grid of tiles
-grid_size = 8  # 8x8 = 64 tiles total
+# Create 4x4 grid of tiles
+grid_size = 4  # 4x4 = 16 tiles total
 half_grid = grid_size // 2
 
 print(f"Creating {grid_size}x{grid_size} grid ({grid_size*grid_size} tiles total)")

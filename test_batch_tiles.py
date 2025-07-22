@@ -4,23 +4,25 @@ import time
 from datetime import datetime
 
 project = arcpy.mp.ArcGISProject("CURRENT")
-output_dir = r"C:\Users\dheaven\Desktop\tiles_250m_full" #change to match your output directory
+# Configuration for SMALL TEST BATCH processing with 250m tiles
+output_dir = r"C:\Users\dheaven\Desktop\tiles_250m_test"
 tile_size = 250  
 spatial_ref = arcpy.SpatialReference(26917)
 
+# Test batch settings - MUCH smaller for testing
+max_test_tiles = 100  # Only process first 100 tiles
+batch_size = 25       # Smaller batches for testing
+max_retries = 3   
+sleep_between_batches = 5   # Shorter sleep for testing
+log_interval = 25           # Log every 25 tiles
 
-batch_size = 50  
-max_retries = 3  
-sleep_between_batches = 10 
-log_interval = 200  
-
-
+# Create timestamped output folder
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-output_dir = os.path.join(output_dir, f"batch_{timestamp}")
+output_dir = os.path.join(output_dir, f"test_batch_{timestamp}")
 os.makedirs(output_dir, exist_ok=True)
 
 # Logging setup
-log_file = os.path.join(output_dir, "processing_log.txt")
+log_file = os.path.join(output_dir, "test_processing_log.txt")
 failed_tiles_file = os.path.join(output_dir, "failed_tiles.txt")
 
 def log_message(message):
@@ -31,9 +33,9 @@ def log_message(message):
         f.write(log_entry + "\n")
 
 # Create output folder
-log_message("=== FULL EXTENT TILING WITH 250M TILES ===")
+log_message("=== TEST BATCH: 250M TILES (Limited to 100 tiles) ===")
 log_message(f"Output directory: {output_dir}")
-log_message(f"Target: ~43,000 tiles at {tile_size}m x {tile_size}m each")
+log_message(f"TEST MODE: Processing only {max_test_tiles} tiles for validation")
 
 # Get the active map
 map_ = project.activeMap
@@ -42,11 +44,11 @@ if not map_:
 
 log_message(f"Working with map: '{map_.name}'")
 
-
+# Directly get the Imagery_2024 layer
 target_layer_name = "Imagery_2024"
 all_layers = map_.listLayers()
 
-
+# Find the specific layer by name
 layer = None
 for lyr in all_layers:
     if lyr.name == target_layer_name:
@@ -62,7 +64,7 @@ else:
         log_message(f"  - {lyr.name}")
     exit(1)
 
-
+# Get extent of the layer
 desc = arcpy.Describe(layer)
 extent = desc.extent
 
@@ -74,49 +76,47 @@ xmin, ymin, xmax, ymax = extent.XMin, extent.YMin, extent.XMax, extent.YMax
 # Calculate how many tiles needed to cover the entire extent
 extent_width = xmax - xmin
 extent_height = ymax - ymin
-tiles_x = int(extent_width / tile_size) + 1  # Add 1 to ensure full coverage
+tiles_x = int(extent_width / tile_size) + 1  
 tiles_y = int(extent_height / tile_size) + 1
 
-total_tiles = tiles_x * tiles_y
+total_possible_tiles = tiles_x * tiles_y
 
 log_message(f"Layer extent: {extent_width:.0f}m x {extent_height:.0f}m")
-log_message(f"Creating {tiles_x} x {tiles_y} grid ({total_tiles:,} tiles total)")
-log_message(f"Each tile: {tile_size}m x {tile_size}m")
+log_message(f"Full grid would be: {tiles_x} x {tiles_y} ({total_possible_tiles:,} tiles total)")
+log_message(f"TEST MODE: Only processing first {max_test_tiles} tiles")
 
-# Estimate processing time and storage
-estimated_hours = total_tiles / 2000  # Assume ~2000 tiles per hour with 250m tiles
-estimated_size_gb = (total_tiles * 12.5) / 1024  # ~12.5MB per 250m tile estimate
-
-log_message(f"Estimated processing time: {estimated_hours:.1f} hours")
-log_message(f"Estimated storage needed: {estimated_size_gb:.1f} GB")
-
-# Confirm processing for large datasets
-if total_tiles > 50000:
-    log_message(f"⚠️  Large dataset: {total_tiles:,} tiles to process")
-    log_message("This will take significant time and storage space.")
-elif total_tiles < 40000:
-    log_message(f"ℹ️  Expected ~43,000 tiles, got {total_tiles:,}")
-
-log_message("Processing will begin in 5 seconds...")
-time.sleep(5)
-
-# Generate tile extents covering the entire area
-log_message("Generating tile grid...")
+# Generate tile extents covering the entire area (but limit to test amount)
+log_message("Generating test tile grid...")
 tile_extents = []
+tile_count = 0
+
 for row in range(tiles_y):
+    if tile_count >= max_test_tiles:
+        break
     for col in range(tiles_x):
+        if tile_count >= max_test_tiles:
+            break
+            
         # Calculate tile boundaries
         x0 = xmin + (col * tile_size)
         y0 = ymin + (row * tile_size)
-        x1 = min(x0 + tile_size, xmax)  # Don't exceed layer extent
+        x1 = min(x0 + tile_size, xmax)  
         y1 = min(y0 + tile_size, ymax)
         
         tile_extents.append((x0, y0, x1, y1, row + 1, col + 1))
+        tile_count += 1
 
-log_message(f"✓ Generated {len(tile_extents):,} tile positions")
+log_message(f"✓ Generated {len(tile_extents)} test tile positions")
+
+# Estimate test processing time
+estimated_minutes = len(tile_extents) / 30  # Assume ~30 tiles per minute for 250m tiles
+log_message(f"Estimated test time: {estimated_minutes:.1f} minutes")
+
+log_message("Test processing will begin in 3 seconds...")
+time.sleep(3)
 
 # Start batch processing
-log_message("Starting batch processing...")
+log_message("Starting TEST batch processing...")
 start_time = time.time()
 processed_count = 0
 failed_count = 0
@@ -129,7 +129,7 @@ for batch_start in range(0, len(tile_extents), batch_size):
     batch_num = (batch_start // batch_size) + 1
     total_batches = (len(tile_extents) + batch_size - 1) // batch_size
     
-    log_message(f"--- BATCH {batch_num:,}/{total_batches:,} ---")
+    log_message(f"--- TEST BATCH {batch_num}/{total_batches} ---")
     
     for idx, (x0, y0, x1, y1, row, col) in enumerate(batch_tiles):
         global_idx = batch_start + idx + 1
@@ -138,11 +138,11 @@ for batch_start in range(0, len(tile_extents), batch_size):
         # Log progress
         if global_idx % log_interval == 0:
             elapsed = time.time() - start_time
-            rate = global_idx / elapsed * 3600  # tiles per hour
+            rate = global_idx / elapsed * 60  # tiles per minute
             remaining = (len(tile_extents) - global_idx) / rate if rate > 0 else 0
             progress = global_idx / len(tile_extents) * 100
-            log_message(f"Progress: {progress:.1f}% ({global_idx:,}/{len(tile_extents):,}) | "
-                       f"Rate: {rate:.0f} tiles/hour | ETA: {remaining:.1f} hours")
+            log_message(f"Progress: {progress:.1f}% ({global_idx}/{len(tile_extents)}) | "
+                       f"Rate: {rate:.0f} tiles/min | ETA: {remaining:.1f} minutes")
         
         extent_str = f"{x0} {y0} {x1} {y1}"
         
@@ -179,10 +179,10 @@ for batch_start in range(0, len(tile_extents), batch_size):
 end_time = time.time()
 total_time = end_time - start_time
 
-log_message("\n=== FULL EXTENT TILING COMPLETE ===")
-log_message(f"Total processing time: {total_time/3600:.1f} hours")
-log_message(f"Successfully processed: {processed_count:,} tiles")
-log_message(f"Failed tiles: {failed_count:,}")
+log_message("\n=== TEST BATCH COMPLETE ===")
+log_message(f"Test processing time: {total_time/60:.1f} minutes")
+log_message(f"Successfully processed: {processed_count} tiles")
+log_message(f"Failed tiles: {failed_count}")
 log_message(f"Success rate: {(processed_count/len(tile_extents)*100):.1f}%")
 
 # Calculate actual storage used
@@ -196,21 +196,36 @@ for root, dirs, files in os.walk(output_dir):
             tile_count += 1
 
 if actual_size > 0:
-    actual_size_gb = actual_size / (1024**3)
-    log_message(f"Actual storage used: {actual_size_gb:.1f} GB for {tile_count:,} files")
+    actual_size_mb = actual_size / (1024*1024)
+    log_message(f"Actual storage used: {actual_size_mb:.1f} MB for {tile_count} files")
     avg_tile_size = actual_size / tile_count / (1024*1024) if tile_count > 0 else 0
     log_message(f"Average tile size: {avg_tile_size:.2f} MB")
 
-log_message(f"Output directory: {output_dir}")
+log_message(f"Test output directory: {output_dir}")
 if failed_count > 0:
     log_message(f"Failed tiles list: {failed_tiles_file}")
 
-log_message("\n=== NEXT STEPS ===")
-log_message("1. Review failed tiles and reprocess if needed")
-log_message("2. Create mosaic dataset from the tiles:")
-log_message("   - Use 'Create Mosaic Dataset' tool")
-log_message("   - Add tiles using 'Add Rasters to Mosaic Dataset'")
-log_message("   - Build overviews for better performance")
-log_message("3. Consider creating tile cache for web services")
+# Extrapolate to full dataset
+if processed_count > 0:
+    actual_rate = processed_count / (total_time / 3600)  # tiles per hour
+    full_time_estimate = total_possible_tiles / actual_rate
+    full_storage_estimate = (actual_size / processed_count * total_possible_tiles) / (1024**3)
+    
+    log_message("\n=== FULL DATASET PROJECTIONS ===")
+    log_message(f"Actual processing rate: {actual_rate:.0f} tiles/hour")
+    log_message(f"Full dataset estimated time: {full_time_estimate:.1f} hours")
+    log_message(f"Full dataset estimated storage: {full_storage_estimate:.1f} GB")
 
-log_message("Processing complete!")
+log_message("\n=== TEST RESULTS & RECOMMENDATIONS ===")
+if processed_count >= len(tile_extents) * 0.95:  # 95% success rate
+    log_message(" TEST SUCCESSFUL!")
+    log_message("Processing appears stable and reliable")
+    log_message("You can proceed with confidence to full processing")
+    log_message("Recommended: Run script_full_extent_tiles.py for all {total_possible_tiles:,} tiles")
+else:
+    log_message("TEST SHOWS ISSUES")
+    log_message("High failure rate detected")
+    log_message("Review errors before proceeding to full processing")
+    log_message("Consider adjusting tile_size or batch_size")
+
+log_message("\nTest complete!")
