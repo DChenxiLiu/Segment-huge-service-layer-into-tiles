@@ -1,22 +1,48 @@
 import arcpy
 import os
+import time
+from datetime import datetime
 
 project = arcpy.mp.ArcGISProject("CURRENT")
-# layer_name = "Imagery_2024"   # We'll let user choose from available layers
-output_dir = r"C:\Users\dheaven\Desktop\testingh_tiles_full"
-tile_size = 100  # Drastically reduced to 100 meters to stay within server limits
-spatial_ref = arcpy.SpatialReference(26917)  # Change to match your projection
+# Configuration for 150,000 tiles processing
+output_dir = r"C:\Users\dheaven\Desktop\tiles_150k"
+tile_size = 100  # 100m x 100m tiles
+spatial_ref = arcpy.SpatialReference(26917)
+
+# Large-scale processing settings
+batch_size = 100  # Process 100 tiles per batch
+max_retries = 3   # Retry failed tiles
+sleep_between_batches = 15  # seconds rest between batches
+log_interval = 500  # Log progress every 500 tiles
+
+# Create timestamped output folder
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_dir = os.path.join(output_dir, f"batch_{timestamp}")
+os.makedirs(output_dir, exist_ok=True)
+
+# Logging setup
+log_file = os.path.join(output_dir, "processing_log.txt")
+failed_tiles_file = os.path.join(output_dir, "failed_tiles.txt")
+
+def log_message(message):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] {message}"
+    print(log_entry)
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(log_entry + "\n")
 
 # Create output folder
-os.makedirs(output_dir, exist_ok=True)
+log_message("=== 150K TILES PROCESSING STARTED ===")
+log_message(f"Output directory: {output_dir}")
+log_message(f"Target: 150,000 tiles at {tile_size}m x {tile_size}m each")
 
 # Get the active map
 map_ = project.activeMap
 if not map_:
     map_ = project.listMaps()[0]
 
-print(f"Working with map: '{map_.name}'")
-print("\nAll available layers:")
+log_message(f"Working with map: '{map_.name}'")
+log_message("Scanning for imagery layers...")
 
 # List all layers with their index for easy selection
 all_layers = map_.listLayers()
@@ -63,9 +89,9 @@ if not imagery_layer:
 
 if imagery_layer:
     layer = imagery_layer
-    print(f"Using layer: '{layer.name}'")
+    log_message(f"✓ Using layer: '{layer.name}'")
 else:
-    print(f"\nNo imagery layer found automatically.")
+    log_message("❌ No imagery layer found automatically.")
     print("Available layers to choose from:")
     for i, lyr in enumerate(all_layers):
         print(f"  [{i}] {lyr.name}")
@@ -78,35 +104,7 @@ else:
 desc = arcpy.Describe(layer)
 extent = desc.extent
 
-print(f"Layer extent: {extent.XMin}, {extent.YMin}, {extent.XMax}, {extent.YMax}")
-
-# For image services, let's check the pixel size to calculate safe tile dimensions
-try:
-    # Get raster properties to understand pixel size
-    cell_size_x = desc.meanCellWidth if hasattr(desc, 'meanCellWidth') else 1.0
-    cell_size_y = desc.meanCellHeight if hasattr(desc, 'meanCellHeight') else 1.0
-    print(f"Estimated cell size: {cell_size_x} x {cell_size_y} meters")
-    
-    # Calculate how many pixels our tile will be
-    pixels_x = tile_size / cell_size_x
-    pixels_y = tile_size / cell_size_y
-    print(f"Tile size in pixels: {pixels_x:.0f} x {pixels_y:.0f}")
-    
-    # Be very conservative with server limits - use much smaller values
-    max_safe_pixels = 1000  # Very conservative limit
-    if pixels_x > max_safe_pixels or pixels_y > max_safe_pixels:
-        # Adjust tile size to be very small
-        tile_size = max_safe_pixels * min(cell_size_x, cell_size_y)
-        pixels_x = tile_size / cell_size_x
-        pixels_y = tile_size / cell_size_y
-        print(f"Adjusted tile size to {tile_size:.0f} meters ({pixels_x:.0f}x{pixels_y:.0f} pixels)")
-        
-except Exception as e:
-    print(f"Could not determine cell size: {e}")
-    print("Using very small default tile size for safety")
-    tile_size = 50  # Even smaller fallback
-
-print(f"Final tile size: {tile_size} meters")
+log_message(f"Layer extent: {extent.XMin:.2f}, {extent.YMin:.2f}, {extent.XMax:.2f}, {extent.YMax:.2f}")
 
 # Calculate tile grid to cover the entire extent
 xmin, ymin, xmax, ymax = extent.XMin, extent.YMin, extent.XMax, extent.YMax
@@ -119,22 +117,29 @@ tiles_y = int(extent_height / tile_size) + 1
 
 total_tiles = tiles_x * tiles_y
 
-print(f"Layer extent: {extent_width:.0f}m x {extent_height:.0f}m")
-print(f"Creating {tiles_x} x {tiles_y} grid ({total_tiles} tiles total)")
-print(f"Each tile: {tile_size}m x {tile_size}m")
-print(f"Total coverage: {tiles_x*tile_size:.0f}m x {tiles_y*tile_size:.0f}m")
+log_message(f"Layer extent: {extent_width:.0f}m x {extent_height:.0f}m")
+log_message(f"Creating {tiles_x} x {tiles_y} grid ({total_tiles:,} tiles total)")
+log_message(f"Each tile: {tile_size}m x {tile_size}m")
 
-# Warning for large datasets
-if total_tiles > 10000:
-    print(f"\n⚠️  WARNING: This will create {total_tiles:,} tiles!")
-    print("This could take a very long time and use significant disk space.")
-    print("Consider reducing the extent or increasing tile size for testing.")
-    response = input("Do you want to continue? (y/n): ")
-    if response.lower() != 'y':
-        print("Operation cancelled.")
-        exit(0)
+# Estimate processing time and storage
+estimated_hours = total_tiles / 1000  # Assume ~1000 tiles per hour
+estimated_size_gb = (total_tiles * 3.25) / 1024  # 3.25MB per tile average
+
+log_message(f"Estimated processing time: {estimated_hours:.1f} hours")
+log_message(f"Estimated storage needed: {estimated_size_gb:.1f} GB")
+
+# Confirm processing for large datasets
+if total_tiles != 150000:
+    log_message(f"⚠️  Note: Calculated {total_tiles:,} tiles, target was 150,000")
+    if total_tiles > 200000:
+        log_message("Consider adjusting tile size or extent to get closer to 150K tiles")
+        response = input("Continue anyway? (y/n): ")
+        if response.lower() != 'y':
+            log_message("Processing cancelled.")
+            exit(0)
 
 # Generate tile extents covering the entire area
+log_message("Generating tile grid...")
 tile_extents = []
 for row in range(tiles_y):
     for col in range(tiles_x):
@@ -146,66 +151,104 @@ for row in range(tiles_y):
         
         tile_extents.append((x0, y0, x1, y1, row + 1, col + 1))
 
-print(f"Generated {len(tile_extents)} tile positions")
+log_message(f"✓ Generated {len(tile_extents):,} tile positions")
 
-# Progress tracking
-progress_interval = max(1, len(tile_extents) // 20)  # Show progress every 5%
+# Start batch processing
+log_message("Starting batch processing...")
+start_time = time.time()
+processed_count = 0
+failed_count = 0
+failed_tiles = []
 
-for idx, (x0, y0, x1, y1, row, col) in enumerate(tile_extents):
-    out_path = os.path.join(output_dir, f"tile_r{row:02d}_c{col:02d}.tif")
+for batch_start in range(0, len(tile_extents), batch_size):
+    batch_end = min(batch_start + batch_size, len(tile_extents))
+    batch_tiles = tile_extents[batch_start:batch_end]
     
-    # Show progress for large datasets
-    if idx % progress_interval == 0 or idx == len(tile_extents) - 1:
-        progress = (idx + 1) / len(tile_extents) * 100
-        print(f"\nProgress: {progress:.1f}% ({idx+1}/{len(tile_extents)})")
+    batch_num = (batch_start // batch_size) + 1
+    total_batches = (len(tile_extents) + batch_size - 1) // batch_size
     
-    print(f"Exporting tile {idx+1}/{len(tile_extents)} (Row {row}, Col {col}) to {os.path.basename(out_path)} ...")
-    print(f"  Extent: {x0:.2f}, {y0:.2f}, {x1:.2f}, {y1:.2f}")
+    log_message(f"--- BATCH {batch_num:,}/{total_batches:,} ---")
     
-    # Create extent string
-    extent_str = f"{x0} {y0} {x1} {y1}"
-
-    try:
-        # Clip raster using extent
-        arcpy.management.Clip(
-            in_raster=layer,
-            rectangle=extent_str,
-            out_raster=out_path,
-            nodata_value="-9999",
-            clipping_geometry="NONE",
-            maintain_clipping_extent="MAINTAIN_EXTENT"
-        )
-        print(f"  ✓ Successfully exported tile {idx+1}")
-    except Exception as e:
-        print(f"  ✗ Error exporting tile {idx+1}: {e}")
-        print(f"  Try reducing tile_size further (current: {tile_size} meters)")
-        continue
-
-print("\nTile export complete!")
-
-# Count successfully exported tiles
-exported_tiles = []
-for idx, (x0, y0, x1, y1, row, col) in enumerate(tile_extents):
-    tile_path = os.path.join(output_dir, f"tile_r{row:02d}_c{col:02d}.tif")
-    if os.path.exists(tile_path):
-        exported_tiles.append(tile_path)
-
-print("\n=== SUMMARY ===")
-print(f"Tiles exported: {len(exported_tiles)}/{len(tile_extents)}")
-print(f"Output directory: {output_dir}")
-print("Files created:")
-if len(exported_tiles) > 0:
-    print(f"  - Individual tiles: tile_r01_c01.tif through tile_r{tiles_y:02d}_c{tiles_x:02d}.tif")
-    print(f"  - Total coverage: {tiles_x*tile_size:.0f}m x {tiles_y*tile_size:.0f}m")
-    print(f"  - Grid dimensions: {tiles_x} columns x {tiles_y} rows")
+    for idx, (x0, y0, x1, y1, row, col) in enumerate(batch_tiles):
+        global_idx = batch_start + idx + 1
+        out_path = os.path.join(output_dir, f"tile_r{row:04d}_c{col:04d}.tif")
+        
+        # Log progress
+        if global_idx % log_interval == 0:
+            elapsed = time.time() - start_time
+            rate = global_idx / elapsed * 3600  # tiles per hour
+            remaining = (len(tile_extents) - global_idx) / rate if rate > 0 else 0
+            progress = global_idx / len(tile_extents) * 100
+            log_message(f"Progress: {progress:.1f}% ({global_idx:,}/{len(tile_extents):,}) | "
+                       f"Rate: {rate:.0f} tiles/hour | ETA: {remaining:.1f} hours")
+        
+        extent_str = f"{x0} {y0} {x1} {y1}"
+        
+        # Process with retries
+        success = False
+        for attempt in range(max_retries):
+            try:
+                arcpy.management.Clip(
+                    in_raster=layer,
+                    rectangle=extent_str,
+                    out_raster=out_path,
+                    nodata_value="-9999",
+                    clipping_geometry="NONE",
+                    maintain_clipping_extent="MAINTAIN_EXTENT"
+                )
+                processed_count += 1
+                success = True
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)  # Brief pause before retry
+                else:
+                    failed_count += 1
+                    failed_tiles.append(f"Tile {global_idx}: row {row}, col {col} - {str(e)[:100]}")
+                    # Log to failed tiles file
+                    with open(failed_tiles_file, "a", encoding="utf-8") as f:
+                        f.write(f"Tile {global_idx}: row {row:04d}, col {col:04d}, extent {extent_str}\n")
     
-    # Estimate file size
-    if len(exported_tiles) >= 4:
-        # Use your observed ratio: 4 tiles = 13MB
-        estimated_total_size = (len(exported_tiles) * 13) / 4  # MB
-        if estimated_total_size > 1024:
-            print(f"  - Estimated total size: {estimated_total_size/1024:.1f} GB")
-        else:
-            print(f"  - Estimated total size: {estimated_total_size:.0f} MB")
-else:
-    print("  - No tiles were successfully exported")
+    # Rest between batches
+    if batch_num < total_batches:
+        time.sleep(sleep_between_batches)
+
+# Final processing summary
+end_time = time.time()
+total_time = end_time - start_time
+
+log_message("\n=== 150K TILES PROCESSING COMPLETE ===")
+log_message(f"Total processing time: {total_time/3600:.1f} hours")
+log_message(f"Successfully processed: {processed_count:,} tiles")
+log_message(f"Failed tiles: {failed_count:,}")
+log_message(f"Success rate: {(processed_count/len(tile_extents)*100):.1f}%")
+
+# Calculate actual storage used
+actual_size = 0
+tile_count = 0
+for root, dirs, files in os.walk(output_dir):
+    for file in files:
+        if file.endswith('.tif'):
+            file_path = os.path.join(root, file)
+            actual_size += os.path.getsize(file_path)
+            tile_count += 1
+
+if actual_size > 0:
+    actual_size_gb = actual_size / (1024**3)
+    log_message(f"Actual storage used: {actual_size_gb:.1f} GB for {tile_count:,} files")
+    avg_tile_size = actual_size / tile_count / (1024*1024) if tile_count > 0 else 0
+    log_message(f"Average tile size: {avg_tile_size:.2f} MB")
+
+log_message(f"Output directory: {output_dir}")
+if failed_count > 0:
+    log_message(f"Failed tiles list: {failed_tiles_file}")
+
+log_message("\n=== NEXT STEPS ===")
+log_message("1. Review failed tiles and reprocess if needed")
+log_message("2. Create mosaic dataset from the tiles:")
+log_message("   - Use 'Create Mosaic Dataset' tool")
+log_message("   - Add tiles using 'Add Rasters to Mosaic Dataset'")
+log_message("   - Build overviews for better performance")
+log_message("3. Consider creating tile cache for web services")
+
+log_message("Processing complete!")

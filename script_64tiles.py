@@ -2,9 +2,9 @@ import arcpy
 import os
 
 project = arcpy.mp.ArcGISProject("CURRENT")
-# layer_name = "Imagery_2024"   # We'll let user choose from available layers
-output_dir = r"C:\Users\dheaven\Desktop\testingh_tiles"
-tile_size = 100  # Drastically reduced to 100 meters to stay within server limits
+# layer_name = "Imagery_2024"  
+output_dir = r"C:\Users\dheaven\Desktop\testingh_tiles" ##change to match your output directory
+tile_size = 100  
 spatial_ref = arcpy.SpatialReference(26917)  # Change to match your projection
 
 # Create output folder
@@ -35,7 +35,6 @@ for i, lyr in enumerate(all_layers):
         except:
             pass
 
-# Let user choose by index or try to find imagery layer automatically
 imagery_layer = None
 for lyr in all_layers:
     # Look for common imagery layer patterns including your specific server
