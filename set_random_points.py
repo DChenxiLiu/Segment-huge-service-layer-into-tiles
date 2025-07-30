@@ -8,7 +8,7 @@ import geopandas as gpd
 import os
 
 # --- CONFIGURATION ---
-tiles_dir = r"C:\Users\c72liu\OneDrive - University of Waterloo\Projects\WR_tiles\test_tiles"  # Folder containing tiles
+tiles_dir = r"directory/path/to/the/tiles"  # Folder containing tiles
 num_points = 200
 # ---------------------
 
