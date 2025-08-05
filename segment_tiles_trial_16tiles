@@ -3,7 +3,7 @@ import os
 
 project = arcpy.mp.ArcGISProject("CURRENT")
 # layer_name = "Imagery_2024"  
-output_dir = r"C:\Users\dheaven\Desktop\testing_tiles" ##change to match your output directory
+output_dir = r"C:\Users\c72liu\OneDrive - University of Waterloo\Projects\WR_tiles\test_tiles" ##change to match your output directory
 tile_size = 100  
 spatial_ref = arcpy.SpatialReference(26917)  # Change to match your projection
 
@@ -76,8 +76,8 @@ xmin, ymin, xmax, ymax = extent.XMin, extent.YMin, extent.XMax, extent.YMax
 center_x = (xmin + xmax) / 2
 center_y = (ymin + ymax) / 2
 
-# Create 4x4 grid of tiles
-grid_size = 4  # 4x4 = 16 tiles total
+# Create grid of tiles
+grid_size = 2  # 2x2 grid for simplicity, can be adjusted
 half_grid = grid_size // 2
 
 print(f"Creating {grid_size}x{grid_size} grid ({grid_size*grid_size} tiles total)")
