@@ -1,0 +1,136 @@
+from arcgis.gis import GIS
+from arcgis.raster import ImageryLayer
+import os
+import time
+import requests
+
+# --- CONFIGURATION ---
+service_url = "https://sampleserver6.arcgisonline.com/arcgis/rest/services/NLCDLandCover2001/ImageServer"
+output_dir = r"C:\Users\c72liu\Desktop\tiles"  # Use an absolute path you have write access to
+tile_size = 2000  # in meters (2km x 2km tiles)
+tile_pixel_size = [512, 512]  # Reduce if export fails
+max_tiles_x = 3  # Number of tiles in x direction
+max_tiles_y = 3  # Number of tiles in y direction
+# ---------------------
+
+# Connect to ArcGIS Online (anonymous)
+gis = GIS()
+
+# Connect to the image service
+try:
+    img_layer = ImageryLayer(service_url, gis=gis)
+    extent = img_layer.extent
+    if not extent:
+        raise ValueError("Could not retrieve extent from the image service. Check the service URL and your access.")
+except Exception as e:
+    print(f"Failed to connect to image service: {e}")
+    exit(1)
+
+xmin, ymin, xmax, ymax = extent['xmin'], extent['ymin'], extent['xmax'], extent['ymax']
+
+# Create output directory
+os.makedirs(output_dir, exist_ok=True)
+
+# Calculate number of tiles in x and y direction
+x_steps = int((xmax - xmin) // tile_size) + 1
+y_steps = int((ymax - ymin) // tile_size) + 1
+
+
+# Export 4 tiles (2x2 grid) centered on the extent
+center_x = (xmin + xmax) / 2
+center_y = (ymin + ymax) / 2
+
+offsets = [
+    (-tile_size, -tile_size),
+    (0, -tile_size),
+    (-tile_size, 0),
+    (0, 0)
+]
+
+for idx, (dx, dy) in enumerate(offsets):
+    x0 = center_x + dx
+    x1 = x0 + tile_size
+    y0 = center_y + dy
+    y1 = y0 + tile_size
+    bbox = {'xmin': x0, 'ymin': y0, 'xmax': x1, 'ymax': y1, 'spatialReference': extent['spatialReference']}
+    print(f"Tile {idx+1} bbox: {bbox}")
+    out_path = os.path.join(output_dir, f"tile_{idx+1}.tif")
+    print(f"Exporting tile {idx+1} to {out_path} ...")
+    
+    # Print more details about the export request
+    print(f"  Tile size: {tile_size}m x {tile_size}m")
+    print(f"  Pixel size: {tile_pixel_size}")
+    print(f"  Spatial Reference: {bbox['spatialReference']}")
+    
+    try:
+        result = img_layer.export_image(
+            bbox=bbox,
+            size=tile_pixel_size,
+            save_folder=output_dir,
+            save_file=f"tile_{idx+1}.tif",
+            export_format="tiff"
+        )
+        
+        # Print the full result to see what the service returns
+        print(f"  Export result: {result}")
+        
+        href = result.get('href')
+        if href:
+            print(f"  Download URL: {href}")
+            response = requests.get(href)
+            if response.status_code == 200:
+                with open(out_path, 'wb') as f:
+                    f.write(response.content)
+                
+                # Verify file was created and check its size
+                if os.path.exists(out_path):
+                    file_size = os.path.getsize(out_path)
+                    print(f"Downloaded tile {idx+1} to {out_path}")
+                    print(f"File size: {file_size} bytes")
+                    
+                    # Check if file is too small (might be empty or error)
+                    if file_size < 1000:  # Less than 1KB might indicate an issue
+                        print(f"⚠️ Warning: File {idx+1} is very small ({file_size} bytes)")
+                        # Try to read and print first few bytes to see what's in the file
+                        with open(out_path, 'rb') as f:
+                            first_bytes = f.read(100)
+                            print(f"First 100 bytes: {first_bytes}")
+                    else:
+                        print(f"✅ File appears to be a valid size")
+                        # Try to check if it's a valid TIFF
+                        try:
+                            with open(out_path, 'rb') as f:
+                                header = f.read(8)
+                                if header.startswith(b'II*\x00') or header.startswith(b'MM\x00*'):
+                                    print(f"✅ Valid TIFF header detected")
+                                else:
+                                    print(f"⚠️ Not a valid TIFF file")
+                                    print(f"Header bytes: {header}")
+                        except Exception as e:
+                            print(f"Error checking TIFF header: {e}")
+                else:
+                    print(f"❌ Error: File was not created at {out_path}")
+            else:
+                print(f"Failed to download tile {idx+1} from {href}")
+                print(f"HTTP Status: {response.status_code}")
+        else:
+            print(f"No href found for tile {idx+1}")
+            print(f"Result content: {result}")
+    except Exception as e:
+        print(f"Failed to export tile {idx+1}: {e}")
+
+print("Tiling complete.")
+
+# Final verification - list all files in output directory
+print(f"\nFinal verification - Files in {output_dir}:")
+if os.path.exists(output_dir):
+    files = os.listdir(output_dir)
+    if files:
+        for file in files:
+            file_path = os.path.join(output_dir, file)
+            file_size = os.path.getsize(file_path)
+            print(f"  - {file} ({file_size} bytes)")
+    else:
+        print("  No files found in output directory")
+else:
+    print(f"  Output directory {output_dir} does not exist")
